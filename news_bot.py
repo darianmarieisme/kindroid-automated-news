@@ -1,0 +1,313 @@
+"""
+News Headlines Bot
+Searches for today's top 3 news headlines and sends them to a Kindroid AI
+via message or profile update (configured by KINDROID_DELIVERY env var).
+
+Supported providers: Anthropic (Claude), OpenAI (GPT), xAI (Grok)
+"""
+
+import os
+import json
+import hashlib
+import logging
+import time
+from datetime import datetime
+from pathlib import Path
+
+import requests
+
+# ── Config ──────────────────────────────────────────────────────────────────
+
+def load_config():
+    config_path = Path(__file__).parent / "config.json"
+    with open(config_path) as f:
+        return json.load(f)
+
+CONFIG = load_config()
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+log = logging.getLogger("news-bot")
+
+# ── Category Rotation ───────────────────────────────────────────────────────
+
+def get_todays_categories(cfg: dict) -> list:
+    """Primary categories + today's rotating picks (deterministic by date)."""
+    primary = cfg.get("primary_categories", [])
+    rotating = cfg.get("rotating_categories", [])
+    per_run = cfg.get("rotating_per_run", 2)
+
+    if not rotating or per_run <= 0:
+        return primary
+
+    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+    day_hash = int(hashlib.md5(today_str.encode()).hexdigest(), 16)
+    n = len(rotating)
+    start = day_hash % n
+    picked = [rotating[(start + i) % n] for i in range(per_run)]
+
+    log.info(f"Categories: {primary + picked}")
+    return primary + picked
+
+# ── Prompt ──────────────────────────────────────────────────────────────────
+
+def build_prompt(categories: list, locations: list, omit_topics: list) -> str:
+    today = datetime.utcnow().strftime("%B %d, %Y")
+
+    location_labels = {
+        "world": "international/world", "us": "United States",
+        "uk": "United Kingdom", "local": "local/regional",
+    }
+    loc_descriptions = [location_labels.get(l, l) for l in locations]
+
+    omit_block = ""
+    if omit_topics:
+        omit_block = (
+            "\nEXCLUDE stories primarily about: "
+            + ", ".join(omit_topics) + ".\n"
+        )
+
+    return f"""You are a news researcher. Today is {today}.
+
+Search the web for today's most important news across these categories:
+{chr(10).join(f'- {cat}' for cat in categories)}
+
+Geographic focus: {', '.join(loc_descriptions)}
+{omit_block}
+IMPORTANT RULES:
+- Do NOT narrate your process. Do NOT say things like "I'll search for news"
+  or "Let me look up headlines". Just perform your search silently and then
+  output ONLY the final headlines.
+- Every headline MUST come directly from a real article you found in search
+  results. NEVER invent, speculate, or extrapolate a headline.
+- If a search returns no relevant results for a category, skip that category
+  rather than fabricating a headline.
+
+Return EXACTLY 3 lines formatted as:
+headline text | source_url
+
+Each line is a SEPARATE story — never continue a story across multiple lines.
+Each line must be one complete, self-contained headline sentence about a
+DIFFERENT news topic. Keep each headline under 80 characters if possible.
+The source_url must be the actual URL of the article from your search results.
+No numbering, no bullets, no headers, no commentary."""
+
+# ── Providers ───────────────────────────────────────────────────────────────
+
+def search_anthropic(prompt: str, cfg: dict) -> str:
+    import anthropic
+    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    model = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+    messages = [{"role": "user", "content": prompt}]
+    tools = [{"type": "web_search_20250305", "name": "web_search"}]
+
+    for turn in range(15):
+        log.info(f"Claude turn {turn + 1}...")
+        response = None
+        for attempt in range(5):
+            try:
+                response = client.messages.create(
+                    model=model, max_tokens=1024, tools=tools, messages=messages,
+                )
+                break
+            except anthropic.RateLimitError:
+                wait = 60 * (attempt + 1)
+                log.warning(f"Rate limited ({attempt+1}/5). Waiting {wait}s...")
+                time.sleep(wait)
+
+        if response is None:
+            log.error("Failed after 5 retries.")
+            return ""
+
+        if response.stop_reason == "end_turn":
+            return "\n".join(
+                b.text for b in response.content if hasattr(b, "text")
+            )
+
+        messages.append({"role": "assistant", "content": response.model_dump()["content"]})
+        tool_results = []
+        for block in response.content:
+            bd = block.model_dump() if hasattr(block, "model_dump") else {}
+            if bd.get("type") == "tool_use":
+                tool_results.append({
+                    "type": "tool_result", "tool_use_id": bd["id"],
+                    "content": "Search completed.",
+                })
+        if tool_results:
+            messages.append({"role": "user", "content": tool_results})
+        else:
+            parts = [b.text for b in response.content if hasattr(b, "text")]
+            return "\n".join(parts) if parts else ""
+
+    return ""
+
+
+def search_openai(prompt: str, cfg: dict) -> str:
+    from openai import OpenAI, RateLimitError
+    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    model = os.environ.get("OPENAI_MODEL", "gpt-4.1")
+
+    response = None
+    for attempt in range(5):
+        try:
+            response = client.responses.create(
+                model=model, tools=[{"type": "web_search_preview"}], input=prompt,
+            )
+            break
+        except RateLimitError:
+            wait = 60 * (attempt + 1)
+            log.warning(f"Rate limited ({attempt+1}/5). Waiting {wait}s...")
+            time.sleep(wait)
+
+    if response is None:
+        return ""
+
+    parts = []
+    for item in response.output:
+        if hasattr(item, "content"):
+            for part in item.content:
+                if hasattr(part, "text"):
+                    parts.append(part.text)
+    return "\n".join(parts)
+
+
+def search_grok(prompt: str, cfg: dict) -> str:
+    from openai import OpenAI, RateLimitError
+    client = OpenAI(api_key=os.environ["XAI_API_KEY"], base_url="https://api.x.ai/v1")
+    model = os.environ.get("GROK_MODEL", "grok-4-1-fast-reasoning")
+
+    response = None
+    for attempt in range(5):
+        try:
+            response = client.chat.completions.create(
+                model=model, messages=[{"role": "user", "content": prompt}],
+                 extra_body={"search_mode": "auto"},
+            )
+            break
+        except RateLimitError:
+            wait = 60 * (attempt + 1)
+            log.warning(f"Rate limited ({attempt+1}/5). Waiting {wait}s...")
+            time.sleep(wait)
+
+    if response is None:
+        return ""
+    return response.choices[0].message.content or ""
+
+
+PROVIDERS = {"anthropic": search_anthropic, "openai": search_openai, "grok": search_grok}
+
+
+# ── Verification ───────────────────────────────────────────────────────────
+
+def parse_headlines(raw: str) -> list[dict]:
+    """Parse 'headline | url' lines into structured dicts."""
+    results = []
+    for line in raw.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if "|" in line:
+            headline, url = line.rsplit("|", 1)
+            results.append({"headline": headline.strip(), "url": url.strip()})
+        else:
+            results.append({"headline": line, "url": None})
+    return results
+
+
+def verify_headline(entry: dict, timeout: int = 10) -> bool:
+    """Check that the source URL exists and responds."""
+    url = entry.get("url")
+    if not url or not url.startswith("http"):
+        log.warning(f"No valid URL for: {entry['headline']}")
+        return False
+    try:
+        resp = requests.head(url, allow_redirects=True, timeout=timeout,
+                             headers={"User-Agent": "Mozilla/5.0 NewsBot/1.0"})
+        if resp.status_code < 400:
+            return True
+        # Some sites block HEAD, try GET
+        resp = requests.get(url, allow_redirects=True, timeout=timeout, stream=True,
+                            headers={"User-Agent": "Mozilla/5.0 NewsBot/1.0"})
+        return resp.status_code < 400
+    except requests.RequestException as e:
+        log.warning(f"URL check failed for {url}: {e}")
+        return False
+
+
+def verify_headlines(entries: list[dict]) -> list[dict]:
+    """Return only headlines with reachable source URLs."""
+    verified = []
+    for entry in entries:
+        if verify_headline(entry):
+            log.info(f"✓ Verified: {entry['headline']}")
+            verified.append(entry)
+        else:
+            log.warning(f"✗ Dropped (unverifiable): {entry['headline']}")
+    return verified
+
+
+# ── Kindroid Delivery ───────────────────────────────────────────────────────
+
+def send_to_kindroid(headlines: str, cfg: dict):
+    """Send 3 numbered headlines as a chat message to Kindroid."""
+    kin_id = os.environ.get("KINDROID_AI_ID")
+    api_key = os.environ.get("KINDROID_API_KEY")
+
+    if not kin_id or not api_key:
+        log.info("KINDROID_AI_ID or KINDROID_API_KEY not set — skipping.")
+        return
+
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+
+    lines = headlines.strip().splitlines()
+    numbered = "\n".join(f"{i+1}. {line.strip()}" for i, line in enumerate(lines))
+    message = cfg.get("kindroid_message", "Today's top headlines:")
+    resp = requests.post(
+        "https://api.kindroid.ai/v1/send-message",
+        headers=headers,
+        json={"ai_id": kin_id, "message": f"{message}\n\n{numbered}"},
+    )
+
+    if resp.ok:
+        log.info("Sent to Kindroid")
+    else:
+        log.error(f"Kindroid failed: {resp.status_code} - {resp.text}")
+
+# ── Main ────────────────────────────────────────────────────────────────────
+
+def run():
+    log.info("Fetching top 3 headlines...")
+    cfg = CONFIG
+    categories = get_todays_categories(cfg)
+
+    provider = os.environ.get("NEWS_PROVIDER", cfg.get("provider", "anthropic")).lower()
+    search_fn = PROVIDERS.get(provider)
+    if not search_fn:
+        log.error(f"Unknown provider '{provider}'")
+        return
+
+    prompt = build_prompt(
+        categories,
+        cfg.get("locations", ["us", "world"]),
+        cfg.get("omit_topics", []),
+    )
+    raw = search_fn(prompt, cfg)
+
+    if not raw:
+        log.warning("No headlines generated.")
+        return
+
+    entries = parse_headlines(raw)[:3]
+    verified = verify_headlines(entries)
+
+    if not verified:
+        log.warning("All headlines failed verification — nothing to send.")
+        return
+
+    headlines = "\n".join(e["headline"] for e in verified)
+    print(f"\n{headlines}\n")
+
+    send_to_kindroid(headlines, cfg)
+
+
+if __name__ == "__main__":
+    run()

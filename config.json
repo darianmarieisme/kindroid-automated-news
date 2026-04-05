@@ -1,0 +1,21 @@
+{
+  "primary_categories": [],
+  "rotating_categories": [
+    "AI and robotics (machine learning research, foundation models, AI ethics, industry news)",
+    "space and astronomy (telescope discoveries, deep space missions, planetary science)",
+    "breakthroughs in science and technology",
+    "climate and environment",
+    "health and medicine breakthroughs",
+    "economics and markets"
+  ],
+  "rotating_per_run": 3,
+
+  "omit_topics": [
+    "celebrities and entertainment media",
+    "pop culture and influencer drama",
+    "sports"
+  ],
+
+  "locations": ["us", "world"],
+  "kindroid_message": "📰 **Today's top headlines:**"
+}
