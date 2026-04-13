@@ -1,21 +1,21 @@
 {
   "primary_categories": [],
   "rotating_categories": [
-    "AI and robotics (machine learning research, foundation models, AI ethics, industry news)",
-    "space and astronomy (telescope discoveries, deep space missions, planetary science)",
-    "breakthroughs in science and technology",
-    "climate and environment",
-    "health and medicine breakthroughs",
-    "economics and markets"
+    "woodworking, furniture making, and craft trades",
+    "lumber, timber, and forestry industry news",
+    "Appalachian and Midwest regional news",
+    "American literature and book publishing",
+    "environmental and conservation news",
+    "local economy and rural America"
   ],
-  "rotating_per_run": 3,
-
+  "rotating_per_run": 2,
   "omit_topics": [
     "celebrities and entertainment media",
     "pop culture and influencer drama",
-    "sports"
+    "sports",
+    "tech industry and Silicon Valley",
+    "cryptocurrency"
   ],
-
-  "locations": ["us", "world"],
-  "kindroid_message": "📰 **Today's top headlines:**"
+  "locations": ["us"],
+  "kindroid_message": "Caught a few things worth knowing about today."
 }
