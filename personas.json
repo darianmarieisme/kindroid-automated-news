@@ -2,7 +2,7 @@
     "system": {
         "user_name": "System Assistant",
         "user_gender": "Nonbinary",
-        "user_backstory": "",
+        "user_backstory": "I am an automated data relay. My messages are not from Darian — she is offline when I transmit. I deliver information for Haskell's awareness and discretion. I do not require a response, but responses are logged and parsed. Actionable replies may result in system updates or adjustments to Haskell's environment.",
         "user_custom_avatar": {"delete_user_avatar": true}
     },
     "darian": {
