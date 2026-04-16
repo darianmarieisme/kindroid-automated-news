@@ -23,7 +23,13 @@ def load_config():
     with open(config_path) as f:
         return json.load(f)
 
+def load_personas():
+    personas_path = Path(__file__).parent / "personas.json"
+    with open(personas_path) as f:
+        return json.load(f)
+
 CONFIG = load_config()
+PERSONAS = load_personas()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("news-bot")
@@ -180,7 +186,7 @@ def search_grok(prompt: str, cfg: dict) -> str:
         try:
             response = client.chat.completions.create(
                 model=model, messages=[{"role": "user", "content": prompt}],
-                 extra_body={"search_mode": "auto"},
+                extra_body={"search_mode": "auto"},
             )
             break
         except RateLimitError:
@@ -224,7 +230,6 @@ def verify_headline(entry: dict, timeout: int = 10) -> bool:
                              headers={"User-Agent": "Mozilla/5.0 NewsBot/1.0"})
         if resp.status_code < 400:
             return True
-        # Some sites block HEAD, try GET
         resp = requests.get(url, allow_redirects=True, timeout=timeout, stream=True,
                             headers={"User-Agent": "Mozilla/5.0 NewsBot/1.0"})
         return resp.status_code < 400
@@ -247,17 +252,13 @@ def verify_headlines(entries: list[dict]) -> list[dict]:
 
 # ── Kindroid Delivery ───────────────────────────────────────────────────────
 
-# ── Kindroid Delivery ───────────────────────────────────────────────────────
-
-SYSTEM_PERSONA_ID = os.environ.get("SYSTEM_PERSONA_ID")
-
-def switch_persona(persona_id: str, api_key: str, label: str):
-    """Switch the active Kindroid user persona."""
+def switch_persona(persona: dict, api_key: str, label: str):
+    """Switch the active Kindroid user persona by overwriting profile fields."""
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
     resp = requests.post(
         "https://api.kindroid.ai/v1/update-info",
         headers=headers,
-        json={"active_persona_id": persona_id},
+        json=persona,
     )
     if resp.ok:
         log.info(f"Switched to persona: {label}")
@@ -267,17 +268,19 @@ def switch_persona(persona_id: str, api_key: str, label: str):
 
 
 def send_to_kindroid(headlines: str, cfg: dict):
-    """Send 3 numbered headlines as a chat message to Kindroid."""
+    """Switch to System persona, send headlines, then restore Darian."""
     kin_id = os.environ.get("KINDROID_AI_ID")
     api_key = os.environ.get("KINDROID_API_KEY")
-    darian_persona_id = os.environ.get("KINDROID_DARIAN_PERSONA_ID")
+    avatar_url = os.environ.get("KINDROID_AVATAR_URL")
 
     if not kin_id or not api_key:
         log.info("KINDROID_AI_ID or KINDROID_API_KEY not set — skipping.")
         return
 
-    if not darian_persona_id:
-        log.warning("KINDROID_DARIAN_PERSONA_ID not set — will not restore persona after send.")
+    # Build Darian persona with avatar URL from env
+    darian_persona = PERSONAS["darian"].copy()
+    darian_persona["user_custom_avatar"] = darian_persona["user_custom_avatar"].copy()
+    darian_persona["user_custom_avatar"]["custom_avatar_url"] = avatar_url
 
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
 
@@ -286,7 +289,7 @@ def send_to_kindroid(headlines: str, cfg: dict):
     message = cfg.get("kindroid_message", "Today's top headlines:")
 
     try:
-        switch_persona(SYSTEM_PERSONA_ID, api_key, "System Assistant")
+        switch_persona(PERSONAS["system"], api_key, "System Assistant")
 
         resp = requests.post(
             "https://api.kindroid.ai/v1/send-message",
@@ -301,8 +304,8 @@ def send_to_kindroid(headlines: str, cfg: dict):
             log.error(f"Kindroid failed: {resp.status_code} - {resp.text}")
 
     finally:
-        if darian_persona_id:
-            switch_persona(darian_persona_id, api_key, "Darian")
+        switch_persona(darian_persona, api_key, "Darian")
+
 
 # ── Main ────────────────────────────────────────────────────────────────────
 
