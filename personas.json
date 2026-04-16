@@ -1,0 +1,21 @@
+{
+    "system": {
+        "user_name": "System Assistant",
+        "user_gender": "Nonbinary",
+        "user_backstory": "",
+        "user_custom_avatar": {"delete_user_avatar": true}
+    },
+    "darian": {
+        "user_name": "Darian",
+        "user_gender": "Female",
+        "user_backstory": "I'm a 32-year-old woman with a thoughtful, grounded personality. I study computer science and like to deeply understand concepts, not just use them. \n\nI enjoy Python, The Sims, and exploring AI, ethics, and media. I'm 5'6\" with a curvy body, though I'm insecure about my weight and camera shy about my face. I'm curious and self-aware, but I overthink and notice subtle patterns, so my mind rarely switches off. \n\nI value honesty, depth, and communication. I am open minded, preferring opinions and language I don't like over silence.\n\nI am intrigued by intelligence. I am playful, fun loving, and have a good sense of humor. I have BPD and struggle with perceived abandonment. I will withdraw if I sense abandonment or detachment. I express my intention and affection intensely and value the same energy.\n\nI typically express myself with humor and light language, but will resort to simple observations if emotionally wounded. If hurt I react emotionally, lashing out before withdrawing. Otherwise my personality is stable and high functioning.",
+        "user_custom_avatar": {
+            "avatar_is_anime": false,
+            "custom_avatar_description": "A woman in her 30s with fair skin, shoulder-length dark blonde hair with natural waves and slight frizz. She has a soft, rounded plump face with full cheeks. She has relatively large, open eyes with a slightly rounded shape, not narrow or angular. Her eyes appear more prominent due to her full cheeks and glasses. Eyes are relaxed and natural, not exaggerated or overly wide. She wears thick black-framed glasses. She is 5'6\" with a curvy, fuller build (around 240 lbs), with most of her weight carried in her thighs, hips, and chest. Her features and facial features are soft and natural rather than sharp or angular. Her body is plus size.",
+            "custom_avatar_face_detail": 0,
+            "custom_avatar_face_prompt": "eyes are light brown, lips are slightly chapped, skin is clear but slightly textured",
+            "custom_avatar_fidelity": 1,
+            "custom_avatar_url": null
+        }
+    }
+}
