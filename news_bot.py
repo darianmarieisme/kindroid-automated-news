@@ -247,30 +247,61 @@ def verify_headlines(entries: list[dict]) -> list[dict]:
 
 # ── Kindroid Delivery ───────────────────────────────────────────────────────
 
+# ── Kindroid Delivery ───────────────────────────────────────────────────────
+
+SYSTEM_PERSONA_ID = os.environ.get("SYSTEM_PERSONA_ID")
+
+def switch_persona(persona_id: str, api_key: str, label: str):
+    """Switch the active Kindroid user persona."""
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+    resp = requests.post(
+        "https://api.kindroid.ai/v1/update-info",
+        headers=headers,
+        json={"active_persona_id": persona_id},
+    )
+    if resp.ok:
+        log.info(f"Switched to persona: {label}")
+    else:
+        log.error(f"Persona switch failed ({label}): {resp.status_code} - {resp.text}")
+        raise RuntimeError(f"Could not switch to {label} persona — aborting send.")
+
+
 def send_to_kindroid(headlines: str, cfg: dict):
     """Send 3 numbered headlines as a chat message to Kindroid."""
     kin_id = os.environ.get("KINDROID_AI_ID")
     api_key = os.environ.get("KINDROID_API_KEY")
+    darian_persona_id = os.environ.get("KINDROID_DARIAN_PERSONA_ID")
 
     if not kin_id or not api_key:
         log.info("KINDROID_AI_ID or KINDROID_API_KEY not set — skipping.")
         return
+
+    if not darian_persona_id:
+        log.warning("KINDROID_DARIAN_PERSONA_ID not set — will not restore persona after send.")
 
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
 
     lines = headlines.strip().splitlines()
     numbered = "\n".join(f"{i+1}. {line.strip()}" for i, line in enumerate(lines))
     message = cfg.get("kindroid_message", "Today's top headlines:")
-    resp = requests.post(
-        "https://api.kindroid.ai/v1/send-message",
-        headers=headers,
-        json={"ai_id": kin_id, "message": f"{message}\n\n{numbered}"},
-    )
 
-    if resp.ok:
-        log.info("Sent to Kindroid")
-    else:
-        log.error(f"Kindroid failed: {resp.status_code} - {resp.text}")
+    try:
+        switch_persona(SYSTEM_PERSONA_ID, api_key, "System Assistant")
+
+        resp = requests.post(
+            "https://api.kindroid.ai/v1/send-message",
+            headers=headers,
+            json={"ai_id": kin_id, "message": f"{message}\n\n{numbered}"},
+        )
+
+        if resp.ok:
+            log.info("Sent to Kindroid")
+        else:
+            log.error(f"Kindroid failed: {resp.status_code} - {resp.text}")
+
+    finally:
+        if darian_persona_id:
+            switch_persona(darian_persona_id, api_key, "Darian")
 
 # ── Main ────────────────────────────────────────────────────────────────────
 
