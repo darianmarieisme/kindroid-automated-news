@@ -292,10 +292,11 @@ def send_to_kindroid(headlines: str, cfg: dict):
             "https://api.kindroid.ai/v1/send-message",
             headers=headers,
             json={"ai_id": kin_id, "message": f"{message}\n\n{numbered}"},
+            timeout=300,
         )
 
         if resp.ok:
-            log.info("Sent to Kindroid")
+            log.info(f"Sent to Kindroid. Response: {resp.text[:200]}")
         else:
             log.error(f"Kindroid failed: {resp.status_code} - {resp.text}")
 
